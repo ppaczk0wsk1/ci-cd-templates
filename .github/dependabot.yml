@@ -1,0 +1,49 @@
+# Dependabot keeps your GitHub Actions versions up to date automatically.
+# It opens PRs when new versions of actions are released.
+#
+# This config watches the workflow files in this repo (the templates
+# themselves) and proposes updates when actions like actions/checkout,
+# docker/build-push-action, etc. release new versions.
+#
+# If you copy a workflow template into your own project, copy this file
+# too so your CI stays current.
+#
+# Docs: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+updates:
+  # Monitor GitHub Actions used in workflow files.
+  # Dependabot scans every .yml in .github/workflows/ and workflows/
+  # for "uses:" lines, then checks if newer versions exist.
+  - package-ecosystem: "github-actions"
+
+    # Where the workflow files live. "/" means the repo root.
+    # Dependabot will find .github/workflows/ and workflows/ automatically.
+    directory: "/"
+
+    # How often to check for updates.
+    # "weekly" is a good default - frequent enough to stay current,
+    # not so frequent that you're drowning in PRs.
+    schedule:
+      interval: "weekly"
+      day: "monday"
+
+    # Group all action updates into a single PR instead of one PR per action.
+    # Easier to review and merge.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+    # Limit to 5 open PRs at a time to avoid clutter.
+    open-pull-requests-limit: 5
+
+    # Add labels to Dependabot PRs so you can filter them.
+    labels:
+      - "dependencies"
+      - "ci"
+
+    # Customize the commit message prefix.
+    commit-message:
+      prefix: "ci"
+      include: "scope"

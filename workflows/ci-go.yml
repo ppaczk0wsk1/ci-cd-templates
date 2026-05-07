@@ -1,0 +1,309 @@
+# ============================================================================
+# Go CI/CD
+# ============================================================================
+# Copy to: .github/workflows/ci.yml
+# Covers: lint, vet, test (race detection + coverage), build, cross-compile,
+#         Docker, deploy, release with attached binaries.
+# ============================================================================
+
+# The display name shown in the GitHub Actions tab.
+name: CI/CD
+
+# +-------------------------------------------------------------------------+
+# | TRIGGERS                                                                |
+# +-------------------------------------------------------------------------+
+on:
+  # Run on pushes to these branches.
+  push:
+    branches: [main, master, develop]
+
+  # Run on pull requests targeting these branches.
+  pull_request:
+    branches: [main, master, develop]
+
+  # Allow manual runs from the Actions tab.
+  workflow_dispatch:
+
+# +-------------------------------------------------------------------------+
+# | CONCURRENCY                                                             |
+# +-------------------------------------------------------------------------+
+concurrency:
+  # Group by workflow + branch. If a new push arrives, cancel the old run.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# +-------------------------------------------------------------------------+
+# | ENVIRONMENT VARIABLES                                                   |
+# | Available to every job. Centralizes version config in one place.        |
+# +-------------------------------------------------------------------------+
+env:
+  # Pin the Go version here so all jobs use the same one.
+  # setup-go also reads go.mod's "toolchain" directive if present.
+  GO_VERSION: "1.24"
+
+jobs:
+  # +-----------------------------------------------------------------------+
+  # | CI - lint, vet, test, build                                           |
+  # +-----------------------------------------------------------------------+
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Check out your repo's code onto the runner.
+      - uses: actions/checkout@v6
+
+      # Install Go. setup-go also caches the module download cache
+      # and build cache automatically (no extra config needed).
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      # Run golangci-lint - a fast, parallel linter that bundles dozens of
+      # Go linters (staticcheck, errcheck, gosimple, etc.) into one tool.
+      # Configure it with a .golangci.yml file in your repo root.
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          # "latest" always pulls the newest golangci-lint release.
+          # Pin to a specific version (e.g., "v1.61") for reproducibility.
+          version: latest
+
+      # "go vet" is Go's built-in static analyzer. It catches subtle bugs
+      # that the compiler doesn't flag (e.g., printf format mismatches,
+      # unreachable code, incorrect struct tags).
+      - name: Vet
+        run: go vet ./...
+
+      # Run all tests in all packages.
+      # -race:            enables the race detector (finds data races)
+      # -coverprofile:    writes coverage data to a file
+      # -covermode=atomic: accurate coverage even with concurrent tests
+      # ./...:            test all packages recursively
+      - name: Test
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      # Print a coverage summary table to the workflow log.
+      # Shows coverage percentage per function - useful for quick review.
+      - name: Print coverage
+        run: go tool cover -func=coverage.out
+
+      # -- Upload coverage (optional) --------------------------------------
+      # Uncomment to send coverage to Codecov. Add CODECOV_TOKEN to secrets.
+      #
+      # - name: Upload coverage
+      #   uses: codecov/codecov-action@v4
+      #   with:
+      #     files: coverage.out     # the file we generated above
+      #     token: ${{ secrets.CODECOV_TOKEN }}
+
+      # Build the project. This catches compile errors that tests might miss
+      # (e.g., files with build tags that exclude them from tests).
+      # -v: verbose output showing which packages are being compiled.
+      - name: Build
+        run: go build -v ./...
+
+      # -- Upload build artifact (optional) ------------------------------------
+      # Uncomment to upload the compiled binary as a downloadable artifact.
+      # Go to Actions tab -> click the run -> "Artifacts" to download it.
+      # Useful for testing a specific build or sharing with QA.
+      #
+      # Note: "go build ./..." checks all packages but doesn't produce a
+      # single binary. To get a downloadable binary, build your main
+      # package with -o. Change "./cmd/myapp" to your main package path.
+      # This uploads a linux/amd64 binary (the runner's OS/arch).
+      # For multi-platform binaries, use the cross-compile job below instead.
+      #
+      # - name: Build binary
+      #   run: go build -v -o myapp ./cmd/myapp
+      #
+      # - name: Upload build artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: myapp-linux-amd64-${{ github.sha }}
+      #     path: myapp
+      #     retention-days: 30
+      #     if-no-files-found: error
+
+      # -- Security audit (optional) -------------------------------------------
+      # Uncomment to scan for known vulnerabilities with govulncheck.
+      # govulncheck is Go's official vulnerability scanner. Unlike generic
+      # dependency scanners, it uses static analysis to check if vulnerable
+      # code is actually *reachable* from your program. This means fewer
+      # false positives - it only reports vulnerabilities you can actually hit.
+      # Install it fresh each run to get the latest vulnerability database.
+      #
+      # - name: Security audit (govulncheck)
+      #   run: |
+      #     go install golang.org/x/vuln/cmd/govulncheck@latest
+      #     govulncheck ./...
+
+  # +-----------------------------------------------------------------------+
+  # | DEPENDENCY REVIEW (optional - runs on pull requests only)             |
+  # | Flags new vulnerabilities and license issues introduced by a PR.      |
+  # | Compares the PR's dependency changes against the base branch.         |
+  # +-----------------------------------------------------------------------+
+  # dependency-review:
+  #   runs-on: ubuntu-latest
+  #   if: github.event_name == 'pull_request'
+  #
+  #   permissions:
+  #     contents: read
+  #     pull-requests: write
+  #
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #
+  #     # GitHub's official dependency review. Diffs go.sum against the base
+  #     # branch and flags any new dependencies with known vulnerabilities.
+  #     - name: Dependency review
+  #       uses: actions/dependency-review-action@v4
+  #       with:
+  #         fail-on-severity: high
+
+  # +-----------------------------------------------------------------------+
+  # | CROSS-COMPILE (optional - useful for CLI tools / server binaries)     |
+  # | Builds binaries for multiple OS/architecture combinations.            |
+  # +-----------------------------------------------------------------------+
+  # build-binaries:
+  #   runs-on: ubuntu-latest
+  #   needs: [ci]     # only build binaries after tests pass
+  #
+  #   # Only run when a version tag is pushed.
+  #   if: startsWith(github.ref, 'refs/tags/v')
+  #
+  #   strategy:
+  #     # "include" lets you define explicit combinations instead of
+  #     # generating a full cartesian product. Each item = one job.
+  #     matrix:
+  #       include:
+  #         - goos: linux       # Linux servers, containers
+  #           goarch: amd64
+  #         - goos: linux       # ARM servers (AWS Graviton, Raspberry Pi)
+  #           goarch: arm64
+  #         - goos: darwin      # macOS Intel
+  #           goarch: amd64
+  #         - goos: darwin      # macOS Apple Silicon (M1/M2/M3)
+  #           goarch: arm64
+  #         - goos: windows     # Windows
+  #           goarch: amd64
+  #
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #
+  #     - uses: actions/setup-go@v6
+  #       with:
+  #         go-version: ${{ env.GO_VERSION }}
+  #
+  #     - name: Build
+  #       env:
+  #         # Go uses these env vars to control cross-compilation.
+  #         # No extra toolchain needed - Go cross-compiles natively.
+  #         GOOS: ${{ matrix.goos }}
+  #         GOARCH: ${{ matrix.goarch }}
+  #       run: |
+  #         # Add .exe extension for Windows binaries.
+  #         EXT=""
+  #         if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+  #
+  #         # Name the binary: myapp-linux-amd64, myapp-darwin-arm64, etc.
+  #         APP_NAME=$(basename ${{ github.repository }})
+  #
+  #         # -ldflags="-s -w" strips debug info, reducing binary size ~30%.
+  #         go build -ldflags="-s -w" -o "${APP_NAME}-${GOOS}-${GOARCH}${EXT}" .
+  #
+  #     # Upload the binary as a build artifact so the release job can
+  #     # download it later. Artifacts persist between jobs in a workflow.
+  #     - name: Upload artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
+  #         path: "*-${{ matrix.goos }}-${{ matrix.goarch }}*"
+
+  # +-----------------------------------------------------------------------+
+  # | DOCKER (optional - uncomment when ready)                              |
+  # +-----------------------------------------------------------------------+
+  # docker:
+  #   runs-on: ubuntu-latest
+  #   needs: [ci]
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  #
+  #   permissions:
+  #     contents: read       # check out code
+  #     packages: write      # push images to GHCR
+  #
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #
+  #     # Docker Buildx: extended builder with layer caching, multi-arch, etc.
+  #     - uses: docker/setup-buildx-action@v4
+  #
+  #     # Log into GitHub Container Registry. GITHUB_TOKEN is automatic.
+  #     - uses: docker/login-action@v4
+  #       with:
+  #         registry: ghcr.io
+  #         username: ${{ github.actor }}
+  #         password: ${{ secrets.GITHUB_TOKEN }}
+  #
+  #     - uses: docker/build-push-action@v7
+  #       with:
+  #         context: .
+  #         push: true
+  #         tags: |
+  #           ghcr.io/${{ github.repository }}:latest
+  #           ghcr.io/${{ github.repository }}:${{ github.sha }}
+  #         # GitHub Actions cache for Docker layers. Requires v7+.
+  #         cache-from: type=gha
+  #         cache-to: type=gha,mode=max
+
+  # +-----------------------------------------------------------------------+
+  # | DEPLOY (optional)                                                     |
+  # +-----------------------------------------------------------------------+
+  # deploy:
+  #   runs-on: ubuntu-latest
+  #   needs: [ci]
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  #   environment: production     # enables approval rules in Settings
+  #
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #     - run: |
+  #         echo "Add your deploy commands here, for example:"
+  #         # fly deploy --remote-only
+  #         # ssh deploy@server "systemctl restart myapp"
+  #         # kubectl set image deployment/app app=ghcr.io/...
+
+  # +-----------------------------------------------------------------------+
+  # | RELEASE (optional - creates a GitHub Release with binaries attached)  |
+  # | Example: git tag v1.2.3 && git push --tags                           |
+  # +-----------------------------------------------------------------------+
+  # release:
+  #   runs-on: ubuntu-latest
+  #
+  #   # Wait for cross-compiled binaries to be ready.
+  #   needs: [build-binaries]
+  #
+  #   if: startsWith(github.ref, 'refs/tags/v')
+  #
+  #   permissions:
+  #     contents: write    # permission to create releases
+  #
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #       with:
+  #         fetch-depth: 0    # full history for changelog generation
+  #
+  #     # Download all binary artifacts from the build-binaries job.
+  #     # "merge-multiple: true" flattens them into a single directory.
+  #     - name: Download all binaries
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         path: dist
+  #         merge-multiple: true
+  #
+  #     # Create the release and attach the binaries as downloadable assets.
+  #     - name: Create GitHub Release
+  #       uses: softprops/action-gh-release@v2
+  #       with:
+  #         generate_release_notes: true   # auto-changelog from PR titles
+  #         files: dist/*                  # attach all binaries
