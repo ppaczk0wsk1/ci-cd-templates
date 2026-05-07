@@ -1,0 +1,301 @@
+# ============================================================================
+# TypeScript / JavaScript CI/CD
+# ============================================================================
+# Copy to: .github/workflows/ci.yml
+# Covers: lint, type check, test, build, Docker, deploy, release
+# ============================================================================
+
+# The display name shown in the GitHub Actions tab.
+name: CI/CD
+
+# +-------------------------------------------------------------------------+
+# | TRIGGERS                                                                |
+# | Controls when this workflow runs.                                       |
+# +-------------------------------------------------------------------------+
+on:
+  # Run on pushes to these branches.
+  push:
+    branches: [main, master, develop]
+
+  # Run on pull requests targeting these branches.
+  # This is what gives you the green check / red X on PRs.
+  pull_request:
+    branches: [main, master, develop]
+
+  # Allow manual runs from the Actions tab (useful for debugging).
+  workflow_dispatch:
+
+# +-------------------------------------------------------------------------+
+# | CONCURRENCY                                                             |
+# | Prevents duplicate runs from piling up.                                 |
+# +-------------------------------------------------------------------------+
+concurrency:
+  # Group runs by workflow name + branch/PR. Same group = same queue.
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+  # If a new run starts for the same group, cancel the previous one.
+  # Saves CI minutes when you push multiple commits quickly.
+  cancel-in-progress: true
+
+# +-------------------------------------------------------------------------+
+# | ENVIRONMENT VARIABLES                                                   |
+# | Available to every job and step in this workflow.                        |
+# +-------------------------------------------------------------------------+
+env:
+  # Some tools (e.g., Jest, Vite) check this to adjust behavior in CI.
+  CI: true
+
+# +-------------------------------------------------------------------------+
+# | JOBS                                                                    |
+# | Each job runs in a fresh virtual machine. Jobs run in parallel by       |
+# | default unless you add "needs:" to create dependencies between them.    |
+# +-------------------------------------------------------------------------+
+jobs:
+  ci:
+    # The OS for the runner. ubuntu-latest is the most common and cheapest.
+    # Other options: windows-latest, macos-latest.
+    runs-on: ubuntu-latest
+
+    # -- Matrix strategy ---------------------------------------------------
+    # Runs this job multiple times - once per combination of matrix values.
+    # Here we test against 3 Node versions, producing 3 parallel jobs.
+    strategy:
+      # If false, all matrix jobs run to completion even if one fails.
+      # If true (default), a failure in one cancels the rest.
+      fail-fast: false
+
+      matrix:
+        # Node 20 = active LTS, 22 = current LTS, 24 = current release.
+        # Customize this list for your project's support targets.
+        node-version: [20, 22, 24]
+
+    # -- Steps -------------------------------------------------------------
+    # Steps run sequentially inside the job. Each step is either:
+    #   "uses:" - runs a published action (like a reusable function)
+    #   "run:"  - runs a shell command
+    steps:
+      # Check out your repo's code onto the runner.
+      # Without this, the runner has an empty workspace.
+      - uses: actions/checkout@v6
+
+      # Install the Node.js version from the matrix.
+      # ${{ matrix.node-version }} is replaced with 20, 22, or 24.
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          # Which Node version to install on the runner.
+          node-version: ${{ matrix.node-version }}
+
+          # Cache npm's global download cache between runs.
+          # Speeds up installs significantly. v6 auto-detects npm, but
+          # set to "yarn" or "pnpm" if you use a different package manager.
+          cache: "npm"
+
+      # Install dependencies from package-lock.json.
+      # "npm ci" is preferred over "npm install" in CI because:
+      #   1. It's faster (skips the dependency resolution step)
+      #   2. It fails if package-lock.json is out of sync with package.json
+      #   3. It always does a clean install (deletes node_modules first)
+      - name: Install dependencies
+        run: npm ci
+
+      # Run the "lint" script from package.json.
+      # --if-present: skip silently if the script doesn't exist.
+      # This way the template works even if you haven't set up linting yet.
+      - name: Lint
+        run: npm run lint --if-present
+
+      # Run the "typecheck" script (typically: tsc --noEmit).
+      # --if-present: won't fail if you don't have a typecheck script yet.
+      - name: Type check
+        run: npm run typecheck --if-present
+
+      # Run the "test" script.
+      # Note: use "npm run test" not "npm test" because the shorthand
+      # doesn't support the --if-present flag.
+      - name: Test
+        run: npm run test --if-present
+
+      # Run the "build" script (e.g., tsc, Vite build, Next.js build).
+      # Catches build errors before they reach production.
+      - name: Build
+        run: npm run build --if-present
+
+      # -- Upload build artifact (optional) ------------------------------------
+      # Uncomment to upload the build output as a downloadable artifact.
+      # After a successful run, go to the Actions tab -> click the run ->
+      # scroll down to "Artifacts" to download it.
+      # Useful for sharing builds with QA, testing before release, or
+      # deploying manually.
+      # Change "dist" to match your build output directory (e.g., .next,
+      # build, out).
+      # retention-days: how long GitHub keeps the artifact. Default is 90.
+      # if-no-files-found: "error" fails the step if the directory is empty
+      #   or missing. Use "warn" to just log a warning instead.
+      #
+      # - name: Upload build artifact
+      #   if: matrix.node-version == 22
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: build-${{ github.sha }}
+      #     path: dist/
+      #     retention-days: 30
+      #     if-no-files-found: error
+
+      # -- Security audit (optional) -------------------------------------------
+      # Uncomment to check installed packages for known vulnerabilities
+      # using npm's built-in audit tool. No extra dependencies needed.
+      # --audit-level=high: only fail on high/critical severity vulnerabilities.
+      #   Options: info, low, moderate, high, critical.
+      # --omit=dev: skip devDependencies (they don't ship to production).
+      #   Remove --omit=dev if you want to audit dev dependencies too.
+      #
+      # - name: Security audit
+      #   run: npm audit --audit-level=high --omit=dev
+
+      # -- Upload coverage (optional) --------------------------------------
+      # Uncomment to send test coverage data to Codecov.
+      # Add CODECOV_TOKEN to your repo secrets first (Settings -> Secrets).
+      #
+      # - name: Upload coverage
+      #   # Only upload once, not for every matrix combination.
+      #   if: matrix.node-version == 22
+      #   uses: codecov/codecov-action@v4
+      #   with:
+      #     token: ${{ secrets.CODECOV_TOKEN }}
+
+  # +-----------------------------------------------------------------------+
+  # | DEPENDENCY REVIEW (optional - runs on pull requests only)             |
+  # | Flags new vulnerabilities and license issues introduced by a PR.      |
+  # | This is different from npm audit: it compares the PR's dependency     |
+  # | changes against the base branch, so it only catches NEW problems.     |
+  # +-----------------------------------------------------------------------+
+  # dependency-review:
+  #   runs-on: ubuntu-latest
+  #
+  #   # Only run on pull requests (not pushes). Comparing two branches
+  #   # doesn't make sense outside of a PR context.
+  #   if: github.event_name == 'pull_request'
+  #
+  #   permissions:
+  #     contents: read       # read the repo
+  #     pull-requests: write # post review comments on the PR
+  #
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #
+  #     # GitHub's official dependency review action. It:
+  #     #   1. Diffs the dependency manifests (package-lock.json, go.sum, etc.)
+  #     #   2. Checks new dependencies against the GitHub Advisory Database
+  #     #   3. Optionally checks for license compliance
+  #     # fail-on-severity: block the PR if a new dependency has a known
+  #     #   vulnerability at this severity or higher.
+  #     - name: Dependency review
+  #       uses: actions/dependency-review-action@v4
+  #       with:
+  #         fail-on-severity: high
+
+  # +-----------------------------------------------------------------------+
+  # | DOCKER (optional - uncomment when ready)                              |
+  # | Builds a Docker image and pushes it to GitHub Container Registry.     |
+  # +-----------------------------------------------------------------------+
+  # docker:
+  #   runs-on: ubuntu-latest
+  #
+  #   # Wait for CI to pass before building the image.
+  #   needs: [ci]
+  #
+  #   # Only run on pushes to main (not on PRs or other branches).
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  #
+  #   # Grant this job specific permissions.
+  #   # "contents: read" - lets it check out code.
+  #   # "packages: write" - lets it push container images to GHCR.
+  #   permissions:
+  #     contents: read
+  #     packages: write
+  #
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #
+  #     # Set up Docker Buildx - an extended builder with caching support,
+  #     # multi-platform builds, and other advanced features.
+  #     - uses: docker/setup-buildx-action@v4
+  #
+  #     # Log into GitHub Container Registry (ghcr.io).
+  #     # GITHUB_TOKEN is automatically available - no secrets to configure.
+  #     - uses: docker/login-action@v4
+  #       with:
+  #         registry: ghcr.io
+  #         username: ${{ github.actor }}    # your GitHub username
+  #         password: ${{ secrets.GITHUB_TOKEN }}  # auto-provided by Actions
+  #
+  #     # Build the Docker image and push it to the registry.
+  #     - uses: docker/build-push-action@v7
+  #       with:
+  #         context: .        # use repo root as Docker build context
+  #         push: true        # actually push (set false for build-only)
+  #
+  #         # Tag with both "latest" and the commit SHA.
+  #         # The SHA tag lets you deploy/rollback to a specific commit.
+  #         tags: |
+  #           ghcr.io/${{ github.repository }}:latest
+  #           ghcr.io/${{ github.repository }}:${{ github.sha }}
+  #
+  #         # Use GitHub Actions cache for Docker layer caching.
+  #         # Dramatically speeds up rebuilds when only a few layers change.
+  #         # "mode=max" caches ALL layers, not just the final image layers.
+  #         cache-from: type=gha
+  #         cache-to: type=gha,mode=max
+
+  # +-----------------------------------------------------------------------+
+  # | DEPLOY (optional - uncomment and customize)                           |
+  # +-----------------------------------------------------------------------+
+  # deploy:
+  #   runs-on: ubuntu-latest
+  #   needs: [ci]          # wait for tests to pass
+  #
+  #   # Only deploy from pushes to main (not PRs).
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  #
+  #   # "environment" enables GitHub's environment protection rules.
+  #   # You can require manual approval, restrict branches, add secrets.
+  #   # Configure at: Settings -> Environments -> production.
+  #   environment: production
+  #
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #     - run: |
+  #         echo "Add your deploy commands here, for example:"
+  #         # vercel --prod --token=${{ secrets.VERCEL_TOKEN }}
+  #         # fly deploy --remote-only
+  #         # aws s3 sync ./dist s3://my-bucket
+  #         # ssh deploy@server "cd /app && git pull && npm run build"
+
+  # +-----------------------------------------------------------------------+
+  # | RELEASE (optional - triggered by pushing a version tag)               |
+  # | Example: git tag v1.2.3 && git push --tags                           |
+  # +-----------------------------------------------------------------------+
+  # release:
+  #   runs-on: ubuntu-latest
+  #
+  #   # Only run when a tag starting with "v" is pushed.
+  #   if: startsWith(github.ref, 'refs/tags/v')
+  #
+  #   # Grant permission to create releases.
+  #   permissions:
+  #     contents: write
+  #
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #       with:
+  #         # Fetch full git history (not just latest commit).
+  #         # Needed so the release action can generate changelogs.
+  #         fetch-depth: 0
+  #
+  #     # Creates a GitHub Release with auto-generated release notes
+  #     # based on merged PR titles since the last tag.
+  #     - name: Create GitHub Release
+  #       uses: softprops/action-gh-release@v2
+  #       with:
+  #         generate_release_notes: true
