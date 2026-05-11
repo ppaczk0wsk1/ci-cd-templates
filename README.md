@@ -23,7 +23,7 @@ Every line is commented. You don't need to read separate docs to understand what
 
 | | Template | Lint | Type Check | Test | Build | Security | Docker | Deploy | Release |
 |---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| 🟨 | [TypeScript / JavaScript](workflows/ci-typescript.yml) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 🟨 | [TypeScript / NodeJS](workflows/ci-typescript.yml) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 🐹 | [Go](workflows/ci-go.yml) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 🐍 | [Python](workflows/ci-python.yml) | ✅ | ✅ | ✅ | - | ✅ | ✅ | ✅ | ✅ |
 
@@ -37,17 +37,17 @@ Every line is commented. You don't need to read separate docs to understand what
 ```bash
 mkdir -p .github/workflows
 
-# TypeScript / JavaScript
+# TypeScript / NodeJS
 curl -o .github/workflows/ci.yml \
-  https://raw.githubusercontent.com/YOUR_USER/ci-templates/main/workflows/ci-typescript.yml
+  https://raw.githubusercontent.com/ppaczk0wsk1/ci-cd-templates/main/workflows/ci-typescript.yml
 
 # Go
 curl -o .github/workflows/ci.yml \
-  https://raw.githubusercontent.com/YOUR_USER/ci-templates/main/workflows/ci-go.yml
+  https://raw.githubusercontent.com/ppaczk0wsk1/ci-cd-templates/main/workflows/ci-go.yml
 
 # Python
 curl -o .github/workflows/ci.yml \
-  https://raw.githubusercontent.com/YOUR_USER/ci-templates/main/workflows/ci-python.yml
+  https://raw.githubusercontent.com/ppaczk0wsk1/ci-cd-templates/main/workflows/ci-python.yml
 ```
 
 **2. Commit and push:**
@@ -62,7 +62,7 @@ git push
 
 ## 📖 Templates
 
-### TypeScript / JavaScript
+### TypeScript / NodeJS
 
 Matrix testing across **Node 20, 22, 24** with npm caching. Runs lint -> type check -> test -> build out of the box. Security audit, Docker, deploy, and release are commented out and ready to enable. Every step explains *why* it's there - from why `npm ci` beats `npm install` to why `npm run test` is used instead of `npm test`.
 
