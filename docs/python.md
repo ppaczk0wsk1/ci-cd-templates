@@ -28,6 +28,48 @@ push / PR
 
 The workflow expects a `requirements.txt` at the repo root. If you also have dev dependencies, put them in `requirements-dev.txt` - the workflow installs it if present.
 
+## Pre-commit Hooks
+
+Run the same ruff and mypy checks locally before pushing, so CI never catches you off guard.
+
+1. Install pre-commit:
+   ```bash
+   pip install pre-commit
+   ```
+
+2. Add `.pre-commit-config.yaml` to your repo root:
+   ```yaml
+   repos:
+     - repo: https://github.com/astral-sh/ruff-pre-commit
+       rev: v0.11.13
+       hooks:
+         - id: ruff
+         - id: ruff-format
+
+     - repo: https://github.com/pre-commit/mirrors-mypy
+       rev: v2.1.0
+       hooks:
+         - id: mypy
+           additional_dependencies:
+             # Add type stubs your project needs, e.g.:
+             # - sqlalchemy[mypy]
+             # - types-requests
+   ```
+
+3. Install the git hook:
+   ```bash
+   pre-commit install
+   ```
+
+Now every `git commit` runs ruff and mypy on staged files automatically. Useful commands:
+
+```bash
+pre-commit run --all-files   # check everything (good for first run)
+pre-commit autoupdate         # bump hook versions to latest
+```
+
+> **Tip:** Pin the same ruff and mypy versions here as in your CI workflow to avoid surprises.
+
 ## Configuring Ruff
 
 Add a `ruff.toml` or `[tool.ruff]` section in `pyproject.toml`:
