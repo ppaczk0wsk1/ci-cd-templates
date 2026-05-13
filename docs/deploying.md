@@ -94,6 +94,18 @@ deploy:
           npm run build
           pm2 restart myapp
         EOF
+
+     # Docker deploy
+     # - name: Deploy
+     #   run: |
+     #     ssh -i ~/.ssh/deploy_key ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+     #       cd ${{ secrets.DEPLOY_DIR }}
+     #
+     #       echo ${{ secrets.GHCR_PAT }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+     #
+     #       docker compose pull
+     #       docker compose up -d --remove-orphans
+     #     EOF
 ```
 
 Adjust the commands inside the `EOF` block to match your project (docker compose up, systemctl restart, etc.).
